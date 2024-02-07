@@ -1,0 +1,386 @@
+---
+title: "Homework 1"
+author: "Your Name Here"
+format:
+  html:
+    toc: true
+    toc-location: left
+    self-contained: true
+---
+
+Professional wrestling, while not everyone's cup of tea, is big business. What started as a carnival act has turned into a global entertainment industry. Netflix recently announced a long-term streaming partnership with the biggest North American wrestling company, WWE -- this deal is reportedly worth \$5 billion. Like any large entity, WWE is not without competition, drama, and scandal.
+
+## Step 1
+
+In the `calls` folder, you'll find 3 text files -- these are transcripts from recent quarterly earnings calls. Read those files in, with appropriate column names for ticker, quarter, and year columns. Perform any data cleaning that you find necessary.
+
+```{r}
+library(httr2)
+library(jsonlite)
+library(rvest)
+library(readtext)
+library(lubridate)
+library(stringr)
+library(dplyr)
+library(tidyr)
+```
+
+```{r}
+
+Text1 <- read.delim2("~/Desktop/GraduateSchool/S3/Unstructured/HW1/wwe_q1_2023.txt")
+Text2 <- read.delim2("~/Desktop/GraduateSchool/S3/Unstructured/HW1/wwe_q2_2023.txt")
+Text3 <- read.delim2("~/Desktop/GraduateSchool/S3/Unstructured/HW1/edr_q3_2023.txt")
+
+Text1$Ticker <- "WWE"
+Text1$Quarter <- "q1"
+Text1$Year <- 2023
+
+Text2$Ticker <- "WWE"
+Text2$Quarter <- "q2"
+Text2$Year <- 2023
+
+Text3$Ticker <- "EDR"
+Text3$Quarter <- "q3"
+Text3$Year <- 2023
+
+
+TotalText <- rbind(Text1, Text2, Text3)
+
+
+
+```
+
+## Step 2
+
+Use the AlphaVantage api to get daily stock prices for WWE and related tickers going back 5 years. You cannot use any AlphaVantage packages. Tell me about the general trend that you are seeing. Has recent news impacted the stock price?
+
+```{r}
+
+key <- "7K7ZEJ6262AE0PA0"
+# key_jack <- "HTK44O0CDC25PZO3"
+# key_ben <- "9RYK8G83S0BVMQ9K"
+
+link_WWE <- "https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol=WWE&outputsize=full&apikey={key}"
+
+request_WWE <- request(link_WWE)%>%
+  req_perform() %>%
+  resp_body_string()
+
+WWE_read <- jsonlite::fromJSON(request_WWE)
+
+WWE <- WWE_read$`Time Series (Daily)`
+
+dates_WWE <- names(WWE)
+
+return_wrangle <- function(x){
+  outdate <- purrr::flatten_df(WWE[[x]])
+  outdate$Date <- x
+  return(outdate)
+}
+
+output_WWE <- purrr::map_df(dates_WWE, ~return_wrangle(.x))
+
+output_date <- output_WWE$Date
+output_close <- output_WWE$`4. close`
+
+final_WWE <- cbind(output_date, output_close)
+final_WWE <- as.data.frame(final_WWE)
+final_WWE$output_date <- ymd(final_WWE$output_date)
+
+last5_WWE <- final_WWE [final_WWE$output_date > as.Date("2019-02-03"),]
+```
+
+```{r}
+
+link_TKO <- "https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol=TKO&outputsize=full&apikey={key}"
+
+request_TKO <- request(link_TKO)%>%
+  req_perform() %>%
+  resp_body_string()
+
+TKO_read <- jsonlite::fromJSON(request_TKO)
+
+TKO <- TKO_read$`Time Series (Daily)`
+
+dates_TKO <- names(TKO)
+
+return_wrangle_2 <- function(x){
+  outdate <- purrr::flatten_df(TKO[[x]])
+  outdate$Date <- x
+  return(outdate)
+}
+
+output_TKO <- purrr::map_df(dates_TKO, ~return_wrangle_2(.x))
+
+output_date <- output_TKO$Date
+output_close <- output_TKO$`4. close`
+
+final_TKO <- cbind(output_date, output_close)
+final_TKO <- as.data.frame(final_TKO)
+final_TKO$output_date <- ymd(final_TKO$output_date)
+
+last5_TKO <- final_TKO [final_TKO$output_date > as.Date("2019-02-03"),]
+```
+
+
+```{r}
+Stockdata <- rbind(last5_TKO,last5_WWE)
+Stockdata <- as.data.frame(Stockdata)
+
+
+plot(Stockdata$output_date, Stockdata$output_close, type = "l", col = "green", xlab = "Date", ylab = "Stock Price", main = "Stock Prices for WWE and TKO")
+
+```
+
+A:  Overall the companies' stock prices have matched the drop from covid and subsequent rise after. However, the merge at the end of 2023 did result in a lower stock price.
+
+## Step 3
+
+Just like every other nerdy hobby, professional wrestling draws dedicated fans. Wrestling fans often go to cagematch.net to leave reviews for matches, shows, and wrestlers. The following link contains the top 100 matches on cagematch: https://www.cagematch.net/?id=111&view=statistics
+
+Please note that if you are using R, you will need to wrap the link the the `url` function before reading it.
+
+```{r}
+
+url <- url("https://www.cagematch.net/?id=111&view=statistics")
+
+Top100Table <- read_html(url) %>% 
+  html_table(header = TRUE) %>% 
+  `[[`(1) 
+
+head(Top100Table)
+
+```
+
+
+-   What is the correlation between WON ratings and cagematch ratings?
+
+```{r}
+
+count <- str_count(Top100Table$WON, "\\*")
+
+Decimal <- substr(
+  Top100Table$WON,nchar(Top100Table$WON)-2,nchar(Top100Table$WON)
+)
+
+Decimal2 <- ifelse(
+  Decimal == "***" |Decimal == "", 0,
+  as.numeric(substr(Decimal,1,1))/as.numeric(substr(Decimal,3,3))
+)
+
+Top100Table$WON <- count + Decimal2
+
+# The Better Way #
+# Top100Table$WON <- gsub("1/4", ".25",fixed = T, Top100Table$WON)
+# Top100Table$WON <- gsub("1/2", ".5",fixed = T, Top100Table$WON)
+# Top100Table$WON <- gsub("3/4", ".75",fixed = T, Top100Table$WON)
+# Top100Table$WON <- gsub("**********", "10",fixed = T, Top100Table$WON)
+# Top100Table$WON <- gsub("*********", "9",fixed = T, Top100Table$WON)
+# Top100Table$WON <- gsub("********", "8",fixed = T, Top100Table$WON)
+# Top100Table$WON <- gsub("*******", "7",fixed = T, Top100Table$WON)
+# Top100Table$WON <- gsub("******", "6",fixed = T, Top100Table$WON)
+# Top100Table$WON <- gsub("*****", "5",fixed = T, Top100Table$WON)
+# Top100Table$WON <- gsub("****", "4",fixed = T, Top100Table$WON)
+# Top100Table$WON <- gsub("***", "3",fixed = T, Top100Table$WON)
+# Top100Table$WON <- gsub("**", "2",fixed = T, Top100Table$WON)
+# Top100Table$WON <- gsub("*", "1",fixed = T, Top100Table$WON)
+# Top100Table$WON <- as.numeric(Top100Table$WON)
+
+cor.test(Top100Table$WON, Top100Table$Rating)
+
+```
+A: They have a correlation of .279 which is a fairly low correlation.
+
+\*\* Which wrestler has the most matches in the top 100?
+
+```{r}
+# got from "https://stackoverflow.com/questions/26969166/counting-occurrences-in-data-frame-in-r"
+# and "https://help.displayr.com/hc/en-us/articles/360004086176-How-to-Split-Text-Strings-in-Displayr-Using-R#:~:text=Uses%20the%20strsplit()%20function,in%20this%20example%2C%20a%20comma."
+
+Top100Table$`Match fixture` <- gsub("vs.", ",", Top100Table$`Match fixture`)
+Top100Table$`Match fixture` <- gsub("&", ",", Top100Table$`Match fixture`)
+Top100Table$`Match fixture` <- gsub(" ", "", Top100Table$`Match fixture`)
+
+
+Top100Table$`Match fixture` <- strsplit(Top100Table$`Match fixture`, ",")
+
+Wrestlers <- table(unlist(Top100Table$`Match fixture`))
+
+MostMatchesWrestled <- sort(Wrestlers, decreasing = T)
+
+head(MostMatchesWrestled)
+
+```
+
+A:  KazuchikaOkada, KennyOmega, and KentaKobashi have the most matches in the top 100 with 15.
+
+\*\*\* Which promotion has the most matches in the top 100?
+
+```{r}
+
+url <- url("https://www.cagematch.net/?id=111&view=statistics")
+
+Top100PTable <- read_html(url) 
+
+Promotions <- html_elements(Top100PTable, ".ImagePromotionLogoMini")
+html_attr(Promotions, "title")
+
+Top100PTable$Promotion <- html_attr(Promotions, "title")
+
+Top100Table$Promotion <- Top100PTable$Promotion
+
+Promotions <- table(unlist(Top100Table$Promotion))
+
+sort(Promotions, decreasing = T)
+
+```
+
+A: New Japan Pro Wrestling has the most matches in the top 100 with 38.
+
+
+\*\*\*\* What is each promotion's average WON rating?
+
+```{r}
+
+ProAvgWON <- Top100Table %>%
+  group_by(Promotion) %>%
+  summarise(AvgWON = mean(WON))
+
+head(ProAvgWON)
+```
+
+\*\*\*\*\* Select any single match and get the comments and ratings for that match into a data frame.
+
+```{r}
+
+#Brute Force  
+# Aja Kong, Kyoko Inoue, Sakie Hasegawa & Takako Inoue vs. Cutie Suzuki, Dynamite Kansai, Hikari Fukuoka & Mayumi Ozaki
+#
+#urlR <- url("https://www.cagematch.net/?id=111&nr=8324&page=98&s=0")
+#urlR2 <- url("https://www.cagematch.net/?id=111&nr=8324&page=98&s=100")
+#
+#RatingsTable <- read_html(urlR) %>% 
+#  html_table(header = TRUE) %>%
+#  `[[`(1) 
+#
+#RatingsTable2 <- read_html(urlR2) %>% 
+#  html_table(header = TRUE) %>%
+#  `[[`(1) 
+#
+#FRatingsTable <- rbind(RatingsTable, RatingsTable2)
+
+
+# Dynamic - From Google 
+#Kenta Kobashi vs. Mitsuharu Misawa
+
+urlR <- sprintf("https://www.cagematch.net/?id=111&nr=2510&page=98&s=%s", seq(0,600, by = 100))
+
+GetPages <- function(urlR) {
+  urlR <- url(urlR)
+  SinglematchTable <- read_html(urlR) %>%
+  html_table (header = TRUE) %>%
+  `[[`(1)
+  return (as.data.frame(SinglematchTable))
+}
+
+SeparateTables <- lapply(urlR, GetPages)
+CombinedTable <- do.call (rbind, SeparateTables)
+
+```
+
+## Step 4
+
+You can't have matches without wrestlers. The following link contains the top 100 wrestlers, according to cagematch: https://www.cagematch.net/?id=2&view=statistics
+
+```{r}
+# From Seth
+# Unique Urls for each fighter
+
+TopWrestlers <- url("https://www.cagematch.net/?id=2&view=statistics")
+
+TopWrestlers <- read_html(TopWrestlers) %>%
+  html_table(header = TRUE) %>%
+  `[[`(1)
+
+TopWrestlers$wrestler_number <- 0
+
+TopWrestlers$wrestler_number <- read_html(url("https://www.cagematch.net/?id=2&view=statistics")) %>%
+  html_elements(("a[href*='?id=2&nr=']")) %>%
+  html_attr("href")
+
+TopWrestlers$wrestler_number <- str_extract(TopWrestlers$wrestler_number, "(?<=nr=)\\d+")
+
+urls <- glue::glue("https://www.cagematch.net/?id=2&nr={TopWrestlers$wrestler_number}&page=22")
+
+#Mine
+
+GetPages2 <- function(urls) {
+  urlw <- url(urls)
+  Wrestlers <- read_html(urlw)
+  Wrestlers <- html_elements(Wrestlers, ".InformationBoxContents")
+  Wrestlers <-html_text(Wrestlers, ".InformationBoxContents")
+  return (as.data.frame(t(Wrestlers)))
+}
+
+Fighters <- lapply(urls, GetPages2)
+WrestlersTable <- do.call (rbind, Fighters)
+colnames(WrestlersTable) <- c("Matches", "Wins", "Loss", "Draw")
+WrestlersTable$Wins <- gsub(" .*","",(WrestlersTable$Wins))
+WrestlersTable$Loss <- gsub(" .*","",(WrestlersTable$Loss))
+WrestlersTable$Draw <- gsub(" .*","",(WrestlersTable$Draw))
+
+WrestlersTable$Matches <- as.numeric(WrestlersTable$Matches)
+WrestlersTable$Wins <- as.numeric(WrestlersTable$Wins)
+WrestlersTable$Loss <- as.numeric(WrestlersTable$Loss)
+WrestlersTable$Draw <- as.numeric(WrestlersTable$Draw)
+WinsLoss <- cbind(TopWrestlers, WrestlersTable)
+WinsLoss = subset(WinsLoss, select = -c(1,4,5,6,7,8,9))
+
+head(WinsLoss)
+
+```
+
+
+\*\*\* Of the top 100, who has wrestled the most matches?
+
+```{r}
+
+MostMatches<- WinsLoss[order(-WinsLoss$Matches),]
+
+```
+
+A: Rick Flair has wrestled the most matches in the top 100 with 4972.
+
+
+\*\*\*\*\* Of the top 100, which wrestler has the best win/loss?
+
+```{r}
+
+WinsLoss$WinLossRatio <- WinsLoss$Wins/WinsLoss$Loss
+
+BestWinLoss <- WinsLoss[order(-WinsLoss$WinLossRatio),]
+
+```
+
+A: Lou Thesz has the best win/loss ratio in the top 100 with 9.6.
+
+
+## Step 5
+
+With all of this work out of the way, we can start getting down to strategy.
+
+First, what talent should WWE pursue?
+
+
+A: The WWE, assuming they are looking for wrestlers to produce top 100 fights, should Pursue talent from Japan and are associated with New Japan Pro Wrestling.
+
+
+Second, reconcile what you found in steps 3 and 4 with Netflix's relationship with WWE. Use the data from the following page to help make your case: https://wrestlenomics.com/tv-ratings/
+
+
+A:  WWE will have a strong relationship with the WWE. Consolidation all the promotions to one platform will allow for a larger audience and more revenue. The top werstlers will definitely benefit from a more mainstream audiencee and Netfix will be intoduced to a die hard fan base.
+
+Third, do you have any further recommendations for WWE?
+
+
+A: Make your website easier to scrape.
